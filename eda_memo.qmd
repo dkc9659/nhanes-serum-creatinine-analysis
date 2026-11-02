@@ -4,6 +4,8 @@ format: html
 editor: visual
 ---
 
+##### Setup
+
 ```{r}
 #| label: setup
 #| echo: true
@@ -28,6 +30,8 @@ diq <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/DIQ
 paq <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/PAQ_L.xpt")
 ```
 
+##### Combining data, filter adults
+
 ```{r}
 #| label: merge-adult-data
 #| echo: true
@@ -50,6 +54,8 @@ nhanes_adults <- demo |>
   filter(RIDAGEYR >= 18)
 
 ```
+
+##### Data check and standardizing variables (sbp, physical activity)
 
 ```{r}
 #| label: adult-sample-check
@@ -128,6 +134,43 @@ q3 <- quantile(nhanes_adults$creatinine, 0.75, na.rm = TRUE)
 
 ```{r}
 print(as.data.frame(summary_table), row.names = FALSE)   
+```
+
+```{r}
+#| label: univariate
+#| fig-width: 10
+#| fig-height: 8
+p1 <- ggplot(nhanes_adults, aes(x = creatinine)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  scale_x_log10() +
+  labs(x = "Creatinine (mg/dL; log axis)", y = "Count")
+
+p2 <- ggplot(nhanes_adults, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "Age (years; 80 = 80+)", y = "Count")
+
+p3 <- ggplot(nhanes_adults, aes(x = bmi)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "BMI (kg/m²)", y = "Count")
+
+p4 <- ggplot(nhanes_adults, aes(x = sbp)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "Systolic BP (mmHg)", y = "Count")
+
+p5 <- ggplot(nhanes_adults, aes(x = log1p(activity))) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "log(1 + activity minutes/week)", y = "Count")
+
+p6 <- ggplot(nhanes_adults |> filter(!is.na(sex)), aes(x = sex)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Sex", y = "Count")
+
+p7 <- ggplot(nhanes_adults |> filter(!is.na(diabetes)), aes(x = diabetes)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Diabetes status", y = "Count")
+
+# Arrange the plots in three columns.
+wrap_plots(p1, p2, p3, p4, p5, p6, p7, ncol = 3)
 ```
 
 ```{r}
