@@ -1,0 +1,122 @@
+---
+title: "Codes for Plots and Tables"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| echo: true
+#| eval: true
+#| warning: true
+
+library(dplyr)
+library(ggplot2)
+library(haven)
+
+demo <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/DEMO_L.xpt")
+
+BIOPRO_L <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/BIOPRO_L.xpt")
+
+bmx <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/BMX_L.xpt")
+
+```
+
+```{r}
+#| label: merge-adult-data
+#| echo: true
+#| eval: true
+#| warning: true
+
+nhanes_adults <- demo |>
+  left_join(BIOPRO_L, by = "SEQN") |>
+  left_join(bmx, by = "SEQN") |>
+  filter(RIDAGEYR >= 18)
+
+
+
+```
+
+```{r}
+#| label: adult-sample-check
+
+
+nrow(nhanes_adults)
+
+summary(nhanes_adults$RIDAGEYR)
+```
+
+```{r}
+#| label: adult-creatinine-summary
+
+nhanes_adults |>
+  summarise(
+    n = sum(!is.na(LBXSCR)),
+    mean = mean(LBXSCR, na.rm = TRUE),
+    median = median(LBXSCR, na.rm = TRUE),
+    sd = sd(LBXSCR, na.rm = TRUE),
+    min = min(LBXSCR, na.rm = TRUE),
+    Q1 = quantile(LBXSCR, 0.25, na.rm = TRUE),
+    Q3 = quantile(LBXSCR, 0.75, na.rm = TRUE),
+    max = max(LBXSCR, na.rm = TRUE)
+  )
+```
+
+```{r}
+#| label: adult-creatinine-histogram
+
+ggplot(nhanes_adults, aes(x = LBXSCR)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribution of Serum Creatinine Among Adults",
+    x = "Serum Creatinine (mg/dL)",
+    y = "Number of Participants"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+#| label: age-creatinine-plot
+
+ggplot(nhanes_adults, aes(x = RIDAGEYR, y = LBXSCR)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(
+    title = "Age vs. Serum Creatinine",
+    x = "Age (years)",
+    y = "Serum Creatinine (mg/dL)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+#| label: sex-creatinine-plot
+
+ggplot(nhanes_adults,
+       aes(x = factor(RIAGENDR), y = LBXSCR)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Serum Creatinine by Sex",
+    x = "Sex (1 = Male, 2 = Female)",
+    y = "Serum Creatinine (mg/dL)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+#| label: bmi-creatinine-plot
+
+ggplot(nhanes_adults, aes(x = BMXBMI, y = LBXSCR)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(
+    title = "BMI vs. Serum Creatinine",
+    x = "Body Mass Index (kg/m²)",
+    y = "Serum Creatinine (mg/dL)"
+  ) +
+  theme_minimal()
+```
