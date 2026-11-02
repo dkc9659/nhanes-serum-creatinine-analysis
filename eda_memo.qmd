@@ -107,6 +107,8 @@ cc <- nhanes_adults |> filter(complete)
 nrow(cc)
 ```
 
+##### Summary of variables (mean, median, sd, Q1, Q3, min, max)
+
 ```{r}
 #| label: adult-creatinine-summary
 
@@ -135,6 +137,8 @@ q3 <- quantile(nhanes_adults$creatinine, 0.75, na.rm = TRUE)
 ```{r}
 print(as.data.frame(summary_table), row.names = FALSE)   
 ```
+
+##### Plotting variables
 
 ```{r}
 #| label: univariate
@@ -171,6 +175,63 @@ p7 <- ggplot(nhanes_adults |> filter(!is.na(diabetes)), aes(x = diabetes)) +
 
 # Arrange the plots in three columns.
 wrap_plots(p1, p2, p3, p4, p5, p6, p7, ncol = 3)
+```
+
+##### Plot of predictor vs outcome
+
+```{r}
+#| label: bivariate
+#| fig-width: 10
+#| fig-height: 6
+
+# Keep participants with both measurements for this plot
+age_data <- nhanes_adults |> drop_na(age, creatinine)
+sex_data <- nhanes_adults |> drop_na(sex, creatinine)
+bmi_data <- nhanes_adults |> drop_na(bmi, creatinine)
+sbp_data <- nhanes_adults |> drop_na(sbp, creatinine)
+diabetes_data <- nhanes_adults |> drop_na(diabetes, creatinine)
+activity_data <- nhanes_adults |> drop_na(activity, creatinine)
+
+b1 <- ggplot(age_data, aes(x = age, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = 'pink') +
+  coord_trans(y = "log10") +
+  labs(x = "Age (years)", y = "Creatinine (mg/dL; log axis)",subtitle = paste("n =", nrow(age_data)))
+
+b2 <- ggplot(sex_data, aes(x = sex, y = creatinine)) +
+  geom_boxplot(fill = "lightblue", outlier.size = 0.6) +
+  coord_trans(y = "log10") +
+  labs(x = "Sex", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(sex_data)))
+
+b3 <- ggplot(bmi_data, aes(x = bmi, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "BMI (kg/m²)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(bmi_data)))
+
+b4 <- ggplot(sbp_data, aes(x = sbp, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "Systolic BP (mmHg)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(sbp_data)))
+
+b5 <- ggplot(diabetes_data, aes(x = diabetes, y = creatinine)) +
+  geom_boxplot(fill = "lightblue", outlier.size = 0.6) +
+  coord_trans(y = "log10") +
+  labs(x = "Diabetes status", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(diabetes_data)))
+
+b6 <- ggplot(activity_data, aes(x = activity, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "Activity (minutes/week)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(activity_data)))
+
+wrap_plots(b1, b2, b3, b4, b5, b6, ncol = 3)
 ```
 
 ```{r}
