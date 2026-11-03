@@ -320,3 +320,101 @@ kable(missing_table, caption="Missing values")
 kable(nhanes_adults |> group_by(complete) |> summarise(n=n(), mean_age=mean(age), mean_bmi=mean(bmi,na.rm=TRUE),
   mean_sbp=mean(sbp,na.rm=TRUE), percent_male=100*mean(sex=="Male",na.rm=TRUE)),digits=2)
 ```
+
+```{r}
+nhanes_adults |>
+  filter(creatinine > 1.42) |>
+  summarise(n = n())
+
+cc |>
+  select(age, bmi, sbp, activity) |>
+  cor()
+summary(nhanes_adults$activity)
+
+nhanes_adults |>
+  arrange(desc(activity)) |>
+  select(SEQN, activity, frequency, minutes) |>
+  head(10)
+
+# Data quality and modeling checks
+
+# 1. Check the six predictors
+names(cc |> select(age, sex, bmi, sbp, diabetes, activity))
+
+# 2. Check coding of categorical predictors
+table(nhanes_adults$sex, useNA = "ifany")
+table(nhanes_adults$diabetes, useNA = "ifany")
+
+# 3. Check unusual values
+summary(nhanes_adults$age)
+summary(nhanes_adults$sbp)
+summary(nhanes_adults$activity)
+
+# Examine the highest activity values
+nhanes_adults |>
+  arrange(desc(activity)) |>
+  select(SEQN, activity, frequency, PAD790U, minutes) |>
+  head(10)
+
+# 4. Initial multiple regression model
+model1 <- lm(
+  creatinine ~ age + sex + bmi + sbp + diabetes + activity,
+  data = cc
+)
+
+summary(model1)
+
+# 5. Check correlations among continuous predictors
+cc |>
+  select(age, bmi, sbp, activity) |>
+  cor()
+
+# 6. Check for multicollinearity using VIF
+# Requires the car package
+# install.packages("car")  # Run once if needed
+car::vif(model1)
+
+# 7. Log transformation of creatinine
+# Creatinine values must be positive
+summary(cc$creatinine)
+
+model_log <- lm(
+  log(creatinine) ~ age + sex + bmi + sbp +
+    diabetes + activity,
+  data = cc
+)
+
+summary(model_log)
+
+# 8. Regression diagnostic plots
+par(mfrow = c(2, 2))
+plot(model1)
+par(mfrow = c(1, 1))
+
+# 9. Diagnostics for the log-transformed model
+par(mfrow = c(2, 2))
+plot(model_log)
+par(mfrow = c(1, 1))
+
+# 10. Identify potentially influential observations
+cooks_d <- cooks.distance(model1)
+sum(cooks_d > 4 / nrow(cc))
+
+# 11. Check whether the largest creatinine values
+# are present in the complete-case dataset
+cc |>
+  arrange(desc(creatinine)) |>
+  select(SEQN, creatinine, age, sex, bmi, sbp,
+         diabetes, activity) |>
+  head(10)
+
+# Check multicollinearity
+car::vif(model1)
+
+# Count potentially influential observations
+sum(cooks.distance(model1) > 4 / nobs(model1))
+
+# Compare with log model
+sum(cooks.distance(model_log) > 4 / nobs(model_log))
+
+```
