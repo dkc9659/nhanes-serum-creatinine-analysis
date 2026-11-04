@@ -1,0 +1,383 @@
+---
+title: "EDA Memo: Factors Associated with Serum Creatinine"
+subtitle: "Regression I — Milestone 2"
+author: "Darla Collu, Vicky Zhang, Ujin Boldbaatar"
+format:
+  html:
+    toc: false
+    embed-resources: true
+execute:
+  echo: false
+  warning: false
+  message: false
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| eval: true
+
+library(dplyr)
+library(ggplot2)
+library(haven)
+library(tidyr)
+library(patchwork)
+library(knitr)
+
+```
+
+## Introduction
+
+We examined associations between demographic, physical, and health-related factors and serum creatinine levels (mg/dL) among U.S. adults using NHANES August 2021–August 2023 data. The six candidate predictors were age, sex, BMI, systolic blood pressure, diabetes status, and moderate leisure-time physical activity. Our analysis included 8,153 adults aged 18 years and older. These exploratory analyses are unweighted and describe relationships within the analyzed NHANES sample rather than nationally representative population estimates.
+
+```{r}
+#| include: false
+demo <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/DEMO_L.xpt")
+BIOPRO_L <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/BIOPRO_L.xpt")
+bmx <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/BMX_L.xpt")
+bp <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/BPXO_L.xpt")
+diq <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/DIQ_L.xpt")
+paq <- read_xpt("https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2021/DataFiles/PAQ_L.xpt")
+```
+
+```{r}
+#| label: merge-adult-data
+#| include: false
+#| eval: true
+#| warning: true
+
+bio <- BIOPRO_L |> select(SEQN, LBXSCR)
+bmx <- bmx |> select(SEQN, BMXBMI)
+bp <- bp |> select(SEQN, BPXOSY1, BPXOSY2, BPXOSY3)
+diq <- diq |> select(SEQN, DIQ010)
+paq <- paq |> select(SEQN, PAD790Q, PAD790U, PAD800)
+
+nhanes_adults <- demo |>
+  left_join(bio, by = "SEQN") |>
+  left_join(bmx, by = "SEQN") |>
+  left_join(bp, by = "SEQN") |>
+  left_join(diq, by = "SEQN") |>
+  left_join(paq, by = "SEQN") |>
+  filter(RIDAGEYR >= 18)
+```
+
+```{r}
+#| label: process-variables
+#| include: false
+
+nhanes_adults <- nhanes_adults |>
+  mutate(
+    creatinine = LBXSCR,
+    age = RIDAGEYR,
+    bmi = BMXBMI,
+    
+    sex = factor(RIAGENDR, levels = c(2, 1),
+                 labels = c("Female", "Male")),
+    
+    DIQ010 = if_else(DIQ010 %in% c(7, 9),
+                     NA_real_, as.numeric(DIQ010)),
+    
+    diabetes = factor(DIQ010, levels = c(2, 1, 3),
+                      labels = c("No", "Yes", "Borderline")),
+    
+    sbp = rowMeans(across(c(BPXOSY1, BPXOSY2, BPXOSY3)),
+                   na.rm = TRUE),
+    sbp = if_else(is.nan(sbp), NA_real_, sbp),
+    
+    frequency = if_else(PAD790Q %in% c(7777, 9999),
+                        NA_real_, as.numeric(PAD790Q)),
+    minutes = if_else(PAD800 %in% c(7777, 9999),
+                      NA_real_, as.numeric(PAD800)),
+    
+    weekly_frequency = case_when(
+      PAD790U == "D" ~ frequency * 7,
+      PAD790U == "W" ~ frequency,
+      PAD790U == "M" ~ frequency * 12 / 52,
+      PAD790U == "Y" ~ frequency / 52,
+      TRUE ~ NA_real_
+    ),
+    
+    activity = case_when(
+      frequency == 0 ~ 0,
+      frequency > 0 ~ weekly_frequency * minutes,
+      TRUE ~ NA_real_
+    )
+  )
+
+model_data <- nhanes_adults |>
+  select(creatinine, age, sex, bmi, sbp, diabetes, activity)
+
+nhanes_adults$complete <- complete.cases(model_data)
+
+cc <- nhanes_adults |> filter(complete)
+```
+
+```{r}
+#| label: adult-creatinine-summary
+#| include: false
+
+long_data <- nhanes_adults |>
+  select(creatinine, age, bmi, sbp, activity) |>
+  pivot_longer(cols = everything(),
+               names_to = "Variable", values_to = "Value")
+
+summary_table <- long_data |>
+  group_by(Variable) |>
+  summarise(
+    n = sum(!is.na(Value)),
+    Mean = mean(Value, na.rm = TRUE),
+    SD = sd(Value, na.rm = TRUE),
+    Median = median(Value, na.rm = TRUE),
+    Q1 = quantile(Value, 0.25, na.rm = TRUE),
+    Q3 = quantile(Value, 0.75, na.rm = TRUE),
+    Minimum = min(Value, na.rm = TRUE),
+    Maximum = max(Value, na.rm = TRUE)
+  )
+
+q1 <- quantile(nhanes_adults$creatinine, 0.25, na.rm = TRUE)
+q3 <- quantile(nhanes_adults$creatinine, 0.75, na.rm = TRUE)
+```
+
+```{r}
+#| echo: false
+kable(summary_table, digits = 2,
+      caption = "Summary Statistics for Continuous Variables")
+```
+
+```{r}
+#| label: univariate
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5.5
+p1 <- ggplot(nhanes_adults, aes(x = creatinine)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  scale_x_log10() +
+  labs(x = "Creatinine (mg/dL; log axis)", y = "Count")
+
+p2 <- ggplot(nhanes_adults, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "Age (years; 80 = 80+)", y = "Count")
+
+p3 <- ggplot(nhanes_adults, aes(x = bmi)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "BMI (kg/m²)", y = "Count")
+
+p4 <- ggplot(nhanes_adults, aes(x = sbp)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "Systolic BP (mmHg)", y = "Count")
+
+p5 <- ggplot(nhanes_adults, aes(x = log1p(activity))) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", na.rm = TRUE) +
+  labs(x = "log(1 + activity minutes/week)", y = "Count")
+
+p6 <- ggplot(nhanes_adults |> filter(!is.na(sex)), aes(x = sex)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Sex", y = "Count")
+
+p7 <- ggplot(nhanes_adults |> filter(!is.na(diabetes)), aes(x = diabetes)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Diabetes status", y = "Count")
+
+# Arrange the plots in three columns.
+wrap_plots(p1, p2, p3, p4, p5, p6, p7, ncol = 3)
+```
+
+Serum creatinine was available for 5,658 participants, with a mean of 0.893 mg/dL (SD = 0.399) and median of 0.85 mg/dL (IQR: 0.72–1.00). The distribution was strongly right-skewed, with a maximum of 15.17 mg/dL. Participants had a mean age of 52.1 years, mean BMI of 29.7 kg/m², and mean systolic blood pressure of 122.4 mmHg. Physical activity was also right-skewed, ranging from 0 to 6,300 minutes per week. The extreme creatinine and activity values warrant further investigation.
+
+## Bivariate Relationships
+
+```{r}
+#| label: bivariate
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.5
+
+# Keep participants with both measurements for this plot
+age_data <- nhanes_adults |> drop_na(age, creatinine)
+sex_data <- nhanes_adults |> drop_na(sex, creatinine)
+bmi_data <- nhanes_adults |> drop_na(bmi, creatinine)
+sbp_data <- nhanes_adults |> drop_na(sbp, creatinine)
+diabetes_data <- nhanes_adults |> drop_na(diabetes, creatinine)
+activity_data <- nhanes_adults |> drop_na(activity, creatinine)
+
+b1 <- ggplot(age_data, aes(x = age, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = 'pink') +
+  coord_trans(y = "log10") +
+  labs(x = "Age (years)", y = "Creatinine (mg/dL; log axis)",subtitle = paste("n =", nrow(age_data)))
+
+b2 <- ggplot(sex_data, aes(x = sex, y = creatinine)) +
+  geom_boxplot(fill = "lightblue", outlier.size = 0.6) +
+  coord_trans(y = "log10") +
+  labs(x = "Sex", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(sex_data)))
+
+b3 <- ggplot(bmi_data, aes(x = bmi, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "BMI (kg/m²)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(bmi_data)))
+
+b4 <- ggplot(sbp_data, aes(x = sbp, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "Systolic BP (mmHg)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(sbp_data)))
+
+b5 <- ggplot(diabetes_data, aes(x = diabetes, y = creatinine)) +
+  geom_boxplot(fill = "lightblue", outlier.size = 0.6) +
+  coord_trans(y = "log10") +
+  labs(x = "Diabetes status", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(diabetes_data)))
+
+b6 <- ggplot(activity_data, aes(x = activity, y = creatinine)) +
+  geom_point(alpha = 0.2, size = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "pink") +
+  coord_trans(y = "log10") +
+  labs(x = "Activity (minutes/week)", y = "Creatinine (mg/dL; log axis)",
+       subtitle = paste("n =", nrow(activity_data)))
+
+wrap_plots(b1, b2, b3, b4, b5, b6, ncol = 3)
+```
+
+Serum creatinine is displayed on a logarithmic axis in the bivariate plots to better visualize relationships despite its right-skewed distribution. The descriptive statistics are reported on the original mg/dL scale. The exploratory plots suggest that serum creatinine is positively associated with age, while male participants generally have higher creatinine levels than females. The association with BMI appears weaker and potentially nonlinear. We also examined systolic blood pressure, diabetes status, and physical activity for differences in creatinine levels. The substantial right-skewness and extreme creatinine observations make these relationships difficult to assess on the original scale, motivating further regression diagnostics and consideration of a log transformation.
+
+## Missing Data and Data Quality
+
+```{r}
+#| label: missingness
+#| echo: false
+
+# Count missing values
+missing_table <- data.frame(
+  Variable = c("Creatinine", "Age", "Sex", "BMI", "SBP", "Diabetes", "Activity"),
+  Missing = c(
+    sum(is.na(nhanes_adults$creatinine)),
+    sum(is.na(nhanes_adults$age)),
+    sum(is.na(nhanes_adults$sex)),
+    sum(is.na(nhanes_adults$bmi)),
+    sum(is.na(nhanes_adults$sbp)),
+    sum(is.na(nhanes_adults$diabetes)),
+    sum(is.na(nhanes_adults$activity))
+  )
+)
+missing_table$Percent <- round(100 * missing_table$Missing / nrow(nhanes_adults), 2)
+kable(missing_table, caption="Missing values")
+```
+
+```{r}
+#| label: missingness-comparison
+#| echo: false
+
+kable(nhanes_adults |> group_by(complete) |> summarise(n=n(), mean_age=mean(age), mean_bmi=mean(bmi,na.rm=TRUE),
+  mean_sbp=mean(sbp,na.rm=TRUE), percent_male=100*mean(sex=="Male",na.rm=TRUE)),digits=2)
+```
+
+Missingness was highest for serum creatinine (30.60%), systolic blood pressure (24.90%), and BMI (23.53%). Age and sex had no missing observations, while diabetes status and physical activity had relatively little missingness. Complete-case analysis retained 5,398 participants (66.2%). Included participants were slightly older on average than excluded participants (52.7 versus 51.0 years), suggesting that missingness could affect representativeness. We also identified 167 creatinine observations above 1.42 mg/dL and unusually high reported physical activity values, which should be examined rather than automatically removed.
+
+Physical activity included 34 observations exceeding 3,000 minutes per week, with a maximum of 6,300 minutes per week. Although these values were consistent with the reported activity frequencies and durations, they were unusually high and may reflect reporting errors. These observations were retained for the exploratory analysis but should be investigated further before final modeling.
+
+```{r}
+#| include: false
+nhanes_adults |>
+  filter(creatinine > 1.42) |>
+  summarise(n = n())
+
+cc |>
+  select(age, bmi, sbp, activity) |>
+  cor()
+summary(nhanes_adults$activity)
+
+nhanes_adults |>
+  arrange(desc(activity)) |>
+  select(SEQN, activity, frequency, minutes) |>
+  head(10)
+
+# Data quality and modeling checks
+
+# 1. Check the six predictors
+names(cc |> select(age, sex, bmi, sbp, diabetes, activity))
+
+# 2. Check coding of categorical predictors
+table(nhanes_adults$sex, useNA = "ifany")
+table(nhanes_adults$diabetes, useNA = "ifany")
+
+# 3. Check unusual values
+summary(nhanes_adults$age)
+summary(nhanes_adults$sbp)
+summary(nhanes_adults$activity)
+
+# Examine the highest activity values
+nhanes_adults |>
+  arrange(desc(activity)) |>
+  select(SEQN, activity, frequency, PAD790U, minutes) |>
+  head(10)
+
+# 4. Initial multiple regression model
+model1 <- lm(
+  creatinine ~ age + sex + bmi + sbp + diabetes + activity,
+  data = cc
+)
+
+summary(model1)
+
+# 5. Check correlations among continuous predictors
+cc |>
+  select(age, bmi, sbp, activity) |>
+  cor()
+
+# 6. Check for multicollinearity using VIF
+# Requires the car package
+# install.packages("car")  # Run once if needed
+car::vif(model1)
+
+# 7. Log transformation of creatinine
+# Creatinine values must be positive
+summary(cc$creatinine)
+
+model_log <- lm(
+  log(creatinine) ~ age + sex + bmi + sbp +
+    diabetes + activity,
+  data = cc
+)
+
+summary(model_log)
+
+# 8. Regression diagnostic plots
+par(mfrow = c(2, 2))
+plot(model1)
+par(mfrow = c(1, 1))
+
+# 9. Diagnostics for the log-transformed model
+par(mfrow = c(2, 2))
+plot(model_log)
+par(mfrow = c(1, 1))
+
+# 10. Identify potentially influential observations
+cooks_d <- cooks.distance(model1)
+sum(cooks_d > 4 / nrow(cc))
+
+# 11. Check whether the largest creatinine values
+# are present in the complete-case dataset
+cc |>
+  arrange(desc(creatinine)) |>
+  select(SEQN, creatinine, age, sex, bmi, sbp,
+         diabetes, activity) |>
+  head(10)
+
+# Check multicollinearity
+car::vif(model1)
+
+# Count potentially influential observations
+sum(cooks.distance(model1) > 4 / nobs(model1))
+
+# Compare with log model
+sum(cooks.distance(model_log) > 4 / nobs(model_log))
+
+```
+## Updated Modeling Plan
+
+We plan to fit a multiple linear regression model with serum creatinine as the outcome and all six predictors included. Preliminary diagnostics suggest that extreme creatinine values may affect residual normality and influence. We will therefore compare models using the original and log-transformed creatinine outcomes, examining residual plots, Q–Q plots, and influential observations. Age and systolic blood pressure showed a moderate correlation (r = 0.391), although the low VIF values suggest that multicollinearity is not a major concern. We will also investigate potential nonlinear relationships and assess how complete-case exclusions may affect our findings. All relationships will be interpreted as associations rather than causal effects.
